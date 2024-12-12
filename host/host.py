@@ -1,7 +1,9 @@
-import serial
-import config
-
+import time
 from typing import List, Optional
+
+import serial
+
+import config
 from command import Command
 
 
@@ -12,14 +14,12 @@ class Site:
 
 
 sites: List[Site] = [
-    Site('1', 'github.com$CircusDirector'),
-    Site('2', 'telegram.org$CircusDirector'),
-    Site('3', 'music.yandex.ru$CircusDirector'),
-    Site('4', 'vk.com$CircusDirector')
+    Site('1', 'github.com$vihlancevk'),
+    Site('2', 'totp.danhersam.com')
 ]
 
 try:
-    ser = serial.Serial(port=config.port, baudrate=config.baud_rate, ctimeout=config.timeout)
+    ser = serial.Serial(port=config.port, baudrate=config.baud_rate, timeout=config.timeout)
 except serial.SerialException as se:
     print(f"Failed to open serial port: {se}")
     exit(1)
@@ -61,7 +61,10 @@ def choose_site() -> Optional[Site]:
 
 def get_site_auth_code() -> str:
     ser.write(Command.GET_SITE_AUTH_CODE.value)
-    ser.write(f'{site.id_}\n{site.name}\n'.encode())
+
+    current_time: int = int(time.time())
+    ser.write(f'{site.id_}\n{site.name}\n{current_time}\n'.encode())
+
     line = ser.readline()
 
     if not line:
