@@ -13,8 +13,9 @@ struct Record {
 static const int MAX_RECORDS = EEPROM_SIZE / sizeof(Record);
 
 static const int TIME_STEP = 30;  // Время действия одноразового пароля
-static int SERIAL_BAUD_RATE = 9600;  // Скорость передачи данных данных бит/с
+static const int SERIAL_BAUD_RATE = 9600;  // Скорость передачи данных бит/с
 
+// Хэш-функция: FNV-1a
 uint16_t fnv1aHash(const String& site, const String& login) {
   uint32_t hash = 2166136261;
   for (char c : site + login) {
@@ -24,23 +25,29 @@ uint16_t fnv1aHash(const String& site, const String& login) {
   return (uint16_t)(hash & 0xFFFF);
 }
 
-bool writeRecord(uint16_t id, const Record& record) {
-  if (id >= MAX_RECORDS) return false;
+// Запись данных в EEPROM
+bool writeRecord(uint16_t index, const Record& record) {
+  if (index >= MAX_RECORDS) return false;
 
-  uint16_t addr = id * sizeof(Record);
-  EEPROM.put(addr, record);
-  EEPROM.commit();
+  uint16_t addr = index * sizeof(Record);
+  for (uint16_t i = 0; i < sizeof(Record); i++) {
+    EEPROM.write(addr + i, *((uint8_t*)&record + i));
+  }
   return true;
 }
 
-bool readRecord(uint16_t id, Record& record) {
-  if (id >= MAX_RECORDS) return false;
+// Чтение данных из EEPROM
+bool readRecord(uint16_t index, Record& record) {
+  if (index >= MAX_RECORDS) return false;
 
-  uint16_t addr = id * sizeof(Record);
-  EEPROM.get(addr, record);
+  uint16_t addr = index * sizeof(Record);
+  for (uint16_t i = 0; i < sizeof(Record); i++) {
+    *((uint8_t*)&record + i) = EEPROM.read(addr + i);
+  }
   return true;
 }
 
+// Поиск записи по ID
 bool findRecordById(uint16_t id, Record& record) {
   for (uint16_t i = 0; i < MAX_RECORDS; i++) {
     Record temp;
@@ -52,12 +59,13 @@ bool findRecordById(uint16_t id, Record& record) {
   return false;
 }
 
-// Функция проверки записи по хэшу
+// Проверка записи по хэшу
 bool validateRecordHash(const Record& record, const String& site,
                         const String& login) {
   return record.hash == fnv1aHash(site, login);
 }
 
+// Добавление записи в EEPROM
 void addRecord(uint16_t id, const String& site, const String& login,
                const uint8_t* secret, size_t secretLength) {
   if (secretLength > 16) {
@@ -71,7 +79,19 @@ void addRecord(uint16_t id, const String& site, const String& login,
   memset(record.secret, 0, sizeof(record.secret));
   memcpy(record.secret, secret, secretLength);
 
-  if (!writeRecord(id, record)) Serial.println("Error writing record");
+  for (uint16_t i = 0; i < MAX_RECORDS; i++) {
+    Record temp;
+    if (!readRecord(i, temp) || temp.id == 0xFFFF) {  // Пустая запись
+      if (writeRecord(i, record)) {
+        Serial.println("Record added successfully");
+        return;
+      } else {
+        Serial.println("Error writing record");
+        return;
+      }
+    }
+  }
+  Serial.println("Error: EEPROM full");
 }
 
 // Получение одноразового пароля. Проверяет наличие записи,
@@ -96,10 +116,9 @@ void getAuthCode(uint16_t id, const String& site, const String& login,
   Serial.println(authCode);
 }
 
-// Пример. Можете удалить или переименовать
-void setup() {
+void example() {
   Serial.begin(SERIAL_BAUD_RATE);
-  EEPROM.begin(EEPROM_SIZE);
+  EEPROM.init();  // Инициализация EEPROM
 
   // Пример добавления записи
   uint8_t secret[] = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0};
