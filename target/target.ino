@@ -1,6 +1,17 @@
 #include <TOTP.h>
-#include <Base32.h>
+#include <EEPROM.h>
 #include <LiquidCrystal.h>
+#include <Base32.h>
+
+#define EEPROM_SIZE 512
+
+struct Record {
+  uint16_t hash;
+  uint16_t id;
+  uint8_t secret[16];
+};
+
+static const int MAX_RECORDS = EEPROM_SIZE / sizeof(Record);
 
 const int rs = PB11, en = PB10, d4 = PB0, d5 = PB1, d6 = PC13, d7 = PC14;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
@@ -12,11 +23,9 @@ enum HostAPICode {
   GET_AUTH_CODE = '1',
   ADD_SITE = '2',
   REM_SITE = '3',
-  SET_TIME = '4'
+  SET_TIME = '4',
+  ADD_RECORD = '5',
 };
-
-// const char GET_LIST_OF_SITES_ID = '0';
-// const char GET_SITE_AUTH_CODE = '1';
 
 const int TIME_STEP = 30;
 
@@ -33,6 +42,10 @@ volatile long ui_current_time = 0;
 
 volatile bool button_pressed = false;
 volatile bool ui_timer_updated = false;
+
+void do_better() {
+  EEPROM.format();
+}
 
 void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
@@ -53,6 +66,8 @@ void setup() {
   lcd.print( "HW TOTP token" );
   lcd.setCursor( 0, 1 );
   lcd.print( "MIPT, 2025" );
+
+  // do_better();
 }
 
 void loop() {
@@ -62,13 +77,30 @@ void loop() {
     if (incoming_code == GET_SITES) {
       get_list_of_sites_id();
     } else if (incoming_code == GET_AUTH_CODE) {
-      get_site_auth_code();
+      // get_site_auth_code();
+      uint16_t id = 2;
+      String site = "totp.danhersam.com";
+      String login = "user";
+      long currentTime = 0;
+      getAuthCode(id, site, login, currentTime);
     } else if (incoming_code == SET_TIME) {
       set_time();
+    } else if (incoming_code == ADD_RECORD) {
+      add_record();
     } else {
       Serial.println("Error: HostAPICode not implemented!");
     }
   }
+}
+
+void add_record() {
+  uint16_t id = 2;
+  String site = "totp.danhersam.com";
+  String login = "user";
+  const char* encoded_code = "2S6NHETOPYDV3K5V";
+  uint8_t decoded_code[16]; // Buffer to store decoded data
+  int decoded_code_length = decode_base32(encoded_code, decoded_code);
+  addRecord(id, site, login, decoded_code, decoded_code_length);
 }
 
 void get_list_of_sites_id() {
@@ -195,4 +227,96 @@ void set_time() {
   global_current_time = curr_time;
   
   Timer3.resume();
+}
+
+uint16_t fnv1aHash(const String& site, const String& login) {
+  uint32_t hash = 2166136261;
+  for (char c : site + login) {
+    hash ^= c;
+    hash *= 16777619;
+  }
+  return (uint16_t)(hash & 0xFFFF);
+}
+
+bool writeRecord(uint16_t index, const Record& record) {
+  if (index >= MAX_RECORDS) return false;
+
+  uint16_t addr = index * sizeof(Record);
+  for (uint16_t i = 0; i < sizeof(Record); i++) {
+    EEPROM.write(addr + i, *((uint8_t*)&record + i));
+  }
+  return true;
+}
+
+bool readRecord(uint16_t index, Record& record) {
+  if (index >= MAX_RECORDS) return false;
+
+  uint16_t addr = index * sizeof(Record);
+  for (uint16_t i = 0; i < sizeof(Record); i++) {
+    *((uint8_t*)&record + i) = EEPROM.read(addr + i);
+  }
+  return true;
+}
+
+bool findRecordById(uint16_t id, Record& record) {
+  for (uint16_t i = 0; i < MAX_RECORDS; i++) {
+    Record temp;
+    if (readRecord(i, temp) && temp.id == id) {
+      record = temp;
+      return true;
+    }
+  }
+  return false;
+}
+
+bool validateRecordHash(const Record& record, const String& site,
+                        const String& login) {
+  return record.hash == fnv1aHash(site, login);
+}
+
+void addRecord(const uint16_t id, const String& site, const String& login, const uint8_t* secret, size_t secretLength) {
+  if (secretLength > 16) {
+    Serial.println("Error: Secret too long");
+    return;
+  }
+
+  Record record;
+  record.hash = fnv1aHash(site, login);
+  record.id = id;
+  memset(record.secret, 0, sizeof(record.secret));
+  memcpy(record.secret, secret, secretLength);
+
+  for (uint16_t i = 0; i < MAX_RECORDS; i++) {
+    Record temp;
+    if (!readRecord(i, temp) || temp.id == 0xFFFF) {  // Пустая запись
+      if (writeRecord(i, record)) {
+        Serial.println("Record added successfully");
+        return;
+      } else {
+        Serial.println("Error writing record");
+        return;
+      }
+    }
+  }
+  Serial.println("Error: EEPROM full");
+}
+
+void getAuthCode(uint16_t id, const String& site, const String& login,
+                 long currentTime) {
+  Record record;
+  if (!findRecordById(id, record)) {
+    Serial.println("Error: Record not found");
+    return;
+  }
+
+//  if (!validateRecordHash(record, site, login)) {
+//    Serial.println("Error: Hash mismatch");
+//    return;
+//  }
+
+  TOTP totp(record.secret, sizeof(record.secret));
+  long timeSteps = currentTime / TIME_STEP;
+  String authCode = totp.getCodeFromSteps(timeSteps);
+
+  Serial.println(authCode);
 }
