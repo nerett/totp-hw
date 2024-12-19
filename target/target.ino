@@ -19,12 +19,10 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 const int SERIAL_BAUD_RATE = 9600;
 
 enum HostAPICode {
-  GET_SITES = '0',
-  GET_AUTH_CODE = '1',
+  SET_TIME = '1',
   ADD_SITE = '2',
-  REM_SITE = '3',
-  SET_TIME = '4',
-  ADD_RECORD = '5',
+  GET_OTP = '3',
+  ERASE_DB = '4',
 };
 
 const int TIME_STEP = 30;
@@ -38,14 +36,9 @@ const int ui_timer_period = 5000000;
 const int totp_timer_period = 1000000;
 
 volatile long global_current_time = 0;
-volatile long ui_current_time = 0;
 
 volatile bool button_pressed = false;
 volatile bool ui_timer_updated = false;
-
-void do_better() {
-  EEPROM.format();
-}
 
 void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
@@ -66,27 +59,20 @@ void setup() {
   lcd.print( "HW TOTP token" );
   lcd.setCursor( 0, 1 );
   lcd.print( "MIPT, 2025" );
-
-  // do_better();
 }
 
 void loop() {
   if (Serial.available() > 0) {
     char incoming_code = Serial.read();
-
-    if (incoming_code == GET_SITES) {
-      get_list_of_sites_id();
-    } else if (incoming_code == GET_AUTH_CODE) {
-      // get_site_auth_code();
-      uint16_t id = 2;
-      String site = "totp.danhersam.com";
-      String login = "user";
-      long currentTime = 0;
-      getAuthCode(id, site, login, currentTime);
-    } else if (incoming_code == SET_TIME) {
+    
+    if (incoming_code == SET_TIME) {
       set_time();
-    } else if (incoming_code == ADD_RECORD) {
+    } else if (incoming_code == ADD_SITE) {
       add_record();
+    } else if (incoming_code == GET_OTP) {
+      get_site_auth_code();
+    } else if (incoming_code == ERASE_DB) {
+      erase_db();
     } else {
       Serial.println("Error: HostAPICode not implemented!");
     }
@@ -114,36 +100,16 @@ void get_list_of_sites_id() {
   Serial.println(list_of_sites_id);
 }
 
-void get_site_auth_code() {
-  String site_id = get_string();
-  String site_name = get_string();
-
-  char *endptr;
-  long current_time = strtol(get_string().c_str(), &endptr, 10);
-
-  if (site_id.length() == 0 || site_name.length() == 0) {
-    Serial.println("Error: Invalid input!");
-    return;
-  }
-
-  int i = get_index(site_id);
-  if (i == -1 || !check_site_name(site_name, sites_hash[i])) {
-    Serial.println("Something went wrong!");
-    return;
-  }
-
+bool lcd_prompt_user(String line1, String line2) {
   lcd.clear();
-  lcd.print( "Send TOTP code?" );
+  lcd.print(line1);
   lcd.setCursor( 0, 1 );
-  lcd.print(sites_encoded_code[i]);
+  lcd.print(line2);
 
   Timer3.pause();
   Timer3.refresh();
-
   button_pressed = false;
   ui_timer_updated = false;
-  ui_current_time = 0;
-  
   Timer3.resume();
 
   while (!button_pressed && !ui_timer_updated) {
@@ -152,12 +118,37 @@ void get_site_auth_code() {
 
   lcd.clear();
   if (button_pressed) {
-    lcd.print( "Confirmed" );
-    String site_auth_code = get_site_auth_code(sites_hash[i], current_time);
-    Serial.println(site_auth_code);
-  } else {
-    lcd.print( "Rejected" );
+    lcd.print( "V Confirmed" );
+    return true;
   }
+  
+  lcd.print( "X Rejected" );
+  return false;
+}
+
+void get_site_auth_code() { 
+  String site_id = get_string();
+  String site_name = get_string();
+  String site_login = get_string();
+
+  if (site_id.length() == 0 || site_name.length() == 0 || site_login.length() == 0) {
+    Serial.println("Error: Invalid input!");
+    return;
+  }
+
+  if (global_current_time <= 0) {
+    Serial.println("Error: Set time first!");
+    return;
+  }
+
+  if (lcd_prompt_user("Send TOTP code?", sites_hash[i])) {
+    site_auth_code = getAuthCode(site_id, site_name, site_login, currentTime);
+    Serial.println(site_auth_code);
+    return;
+  }
+
+  // Reject from user
+  Serial.println(-1);
 }
 
 String get_string() {
@@ -189,7 +180,7 @@ int get_index(String site_id) {
 
 int check_site_name(String site_name, String site_hash) {
   // TODO: Проверка соответствия site_name и site_hash
-  return 1; 
+  return 1;
 }
 
 String get_site_auth_code(const char* site_encoded_code, long current_time) {
@@ -210,7 +201,6 @@ void on_button_push() {
 
 void on_ui_timer_update() {
   ui_timer_updated = true;
-  ui_current_time++;
 }
 
 void on_totp_timer_update() {
@@ -227,6 +217,12 @@ void set_time() {
   global_current_time = curr_time;
   
   Timer3.resume();
+}
+
+void erase_db() {
+  if (lcd_prompt_user("Erase TOTP", "token database?")) {
+    EEPROM.format();
+  }
 }
 
 uint16_t fnv1aHash(const String& site, const String& login) {
