@@ -2,5 +2,7 @@ import enum
 
 
 class Command(enum.Enum):
-    GET_LIST_OF_SITES_ID = b'0'
-    GET_SITE_AUTH_CODE = b'1'
+    SET_TIME = b'1'
+    ADD_SITE = b'2'
+    GET_OTP = b'3'
+    ERASE_DB = b'4'
