@@ -7,7 +7,7 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 const int SERIAL_BAUD_RATE = 9600;
 
-enum class HostAPICode = {
+enum HostAPICode {
   GET_SITES = '0',
   GET_AUTH_CODE = '1',
   ADD_SITE = '2',
@@ -25,10 +25,11 @@ const char* sites_id[SIZE]   = {"1", "2"};
 const char* sites_hash[SIZE] = {"hash1", "hash2"};
 const char* sites_encoded_code[SIZE] = {"code1", "2S6NHETOPYDV3K5V"};
 
-const int ui_timer_period = 5000000000;
-const int totp_timer_period = 1000000000;
+const int ui_timer_period = 5000000;
+const int totp_timer_period = 1000000;
 
 volatile long global_current_time = 0;
+volatile long ui_current_time = 0;
 
 volatile bool button_pressed = false;
 volatile bool ui_timer_updated = false;
@@ -46,17 +47,23 @@ void setup() {
   Timer4.pause();
   Timer4.setPeriod(totp_timer_period);
   Timer4.attachInterrupt(TIMER_UPDATE_INTERRUPT, on_totp_timer_update);
+
+  lcd.begin( 16, 2 );
+  
+  lcd.print( "HW TOTP token" );
+  lcd.setCursor( 0, 1 );
+  lcd.print( "MIPT, 2025" );
 }
 
 void loop() {
   if (Serial.available() > 0) {
-    char incoming_byte = Serial.read();
+    char incoming_code = Serial.read();
 
-    if (incoming_byte == HostAPICode::GET_SITES) {
+    if (incoming_code == GET_SITES) {
       get_list_of_sites_id();
-    } else if (incoming_byte == HostAPICode::GET_AUTH_CODE) {
+    } else if (incoming_code == GET_AUTH_CODE) {
       get_site_auth_code();
-    } else if (incoming_byte == HostAPICode::SET_TIME) {
+    } else if (incoming_code == SET_TIME) {
       set_time();
     } else {
       Serial.println("Error: HostAPICode not implemented!");
@@ -93,8 +100,32 @@ void get_site_auth_code() {
     return;
   }
 
-  String site_auth_code = get_site_auth_code(sites_encoded_code[i], current_time);
-  Serial.println(site_auth_code);
+  lcd.clear();
+  lcd.print( "Send TOTP code?" );
+  lcd.setCursor( 0, 1 );
+  lcd.print(sites_encoded_code[i]);
+
+  Timer3.pause();
+  Timer3.refresh();
+
+  button_pressed = false;
+  ui_timer_updated = false;
+  ui_current_time = 0;
+  
+  Timer3.resume();
+
+  while (!button_pressed && !ui_timer_updated) {
+    delay(300);
+  }
+
+  lcd.clear();
+  if (button_pressed) {
+    lcd.print( "Confirmed" );
+    String site_auth_code = get_site_auth_code(sites_hash[i], current_time);
+    Serial.println(site_auth_code);
+  } else {
+    lcd.print( "Rejected" );
+  }
 }
 
 String get_string() {
@@ -147,13 +178,14 @@ void on_button_push() {
 
 void on_ui_timer_update() {
   ui_timer_updated = true;
+  ui_current_time++;
 }
 
 void on_totp_timer_update() {
   global_current_time++;
 }
 
-set_time() {
+void set_time() {
   char *endptr;
   long curr_time = strtol(get_string().c_str(), &endptr, 10);
 
