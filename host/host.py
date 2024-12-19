@@ -14,6 +14,9 @@ class Site:
         self.name: str = name
         self.login: str = login
 
+    def __repr__(self) -> str:
+        return f"Site(id_={id_}, name={name}, login={login})"
+
 
 sites: List[Site] = []
 with open(config.Database.name, "r") as file:
@@ -77,12 +80,19 @@ def add_site() -> None:
 
     sites.append(site)
     with open(config.Database.name, 'a') as file:
-        file.write(f"{id_},{name},{login}")
+        file.write(f"{id_},{name},{login}\n")
 
-    site_token: str = input("Input site token: ")
+    encoded_code: str = input("Input site token: ")
 
     ser.write(Command.ADD_SITE.value)
-    ser.write(f'{site.id_}\n{site.name}\n{site.login}\n{site_token}\n'.encode())
+    ser.write(f'{site.id_}\n{site.name}\n{site.login}\n{encoded_code}\n'.encode())
+
+    line = ser.readline()
+    if line:
+        print(line.decode().strip('\r\n'))
+        return
+
+    print("No response from Serial")
 
 
 def get_otp() -> Tuple[Optional[Site], Optional[str]]:
@@ -104,6 +114,12 @@ def get_otp() -> Tuple[Optional[Site], Optional[str]]:
 
 def erase_db() -> None:
     ser.write(Command.ERASE_DB.value)
+
+    global sites
+    sites = []
+
+    with open(config.Database.name, 'w'):
+        pass
 
 
 if __name__ == '__main__':

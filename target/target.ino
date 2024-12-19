@@ -5,13 +5,13 @@
 
 #define EEPROM_SIZE 512
 
-struct Record {
-  uint16_t hash;
+struct Site {
   uint16_t id;
-  uint8_t secret[16];
+  uint16_t hash;
+  uint8_t decoded_code[16];
 };
 
-static const int MAX_RECORDS = EEPROM_SIZE / sizeof(Record);
+static const int MAX_SITES = EEPROM_SIZE / sizeof(Site);
 
 const int rs = PB11, en = PB10, d4 = PB0, d5 = PB1, d6 = PC13, d7 = PC14;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
@@ -26,11 +26,6 @@ enum HostAPICode {
 };
 
 const int TIME_STEP = 30;
-
-const int SIZE = 2;
-const char* sites_id[SIZE]   = {"1", "2"};
-const char* sites_hash[SIZE] = {"hash1", "hash2"};
-const char* sites_encoded_code[SIZE] = {"code1", "2S6NHETOPYDV3K5V"};
 
 const int ui_timer_period = 5000000;
 const int totp_timer_period = 1000000;
@@ -68,9 +63,9 @@ void loop() {
     if (incoming_code == SET_TIME) {
       set_time();
     } else if (incoming_code == ADD_SITE) {
-      add_record();
+      add_site();
     } else if (incoming_code == GET_OTP) {
-      get_site_auth_code();
+      get_otp();
     } else if (incoming_code == ERASE_DB) {
       erase_db();
     } else {
@@ -79,25 +74,148 @@ void loop() {
   }
 }
 
-void add_record() {
-  uint16_t id = 2;
-  String site = "totp.danhersam.com";
-  String login = "user";
-  const char* encoded_code = "2S6NHETOPYDV3K5V";
-  uint8_t decoded_code[16]; // Buffer to store decoded data
-  int decoded_code_length = decode_base32(encoded_code, decoded_code);
-  addRecord(id, site, login, decoded_code, decoded_code_length);
+void set_time() {
+  char *endptr;
+  long curr_time = strtol(get_string().c_str(), &endptr, 10);
+
+  Timer4.pause();
+  Timer4.refresh();
+
+  global_current_time = curr_time;
+  
+  Timer3.resume();
 }
 
-void get_list_of_sites_id() {
-  String list_of_sites_id = "";
+void add_site() {
+  uint16_t site_id = (uint16_t) strtoul(get_string().c_str(), NULL, 10);
+  String site_name = get_string();
+  String site_login = get_string();
 
-  for (int i = 0; i < SIZE; ++i) {
-    list_of_sites_id += sites_id[i];
-    list_of_sites_id += ",";
+  const char* site_encoded_code = get_string().c_str();
+  uint8_t site_decoded_code[16];
+  int site_decoded_code_length = decode_base32(site_encoded_code, site_decoded_code);
+
+  String state = add_site(site_id, site_name, site_login, site_decoded_code, site_decoded_code_length);
+  Serial.print(state);
+}
+
+String add_site(const uint16_t site_id, const String& site_name, const String& site_login, const uint8_t* site_decoded_code, const int site_decoded_code_length) {
+  if (site_decoded_code_length > 16) {
+    return "Error: Secret too long";
   }
 
-  Serial.println(list_of_sites_id);
+  Site site;
+  site.hash = fnv1a_hash(site_name, site_login);
+  site.id = site_id;
+  memset(site.decoded_code, 0, sizeof(site.decoded_code));
+  memcpy(site.decoded_code, site_decoded_code, site_decoded_code_length);
+
+  for (uint16_t i = 0; i < MAX_SITES; ++i) {
+    Site temp;
+    if (!read_site(i, temp) || temp.id == 0xFFFF) { // Пустая запись
+      if (write_site(i, site)) {
+        return "Site added successfully";
+      } else {
+        return "Error writing site";
+      }
+    }
+  }
+  
+  return "Error: EEPROM full";
+}
+
+bool read_site(const uint16_t index, const Site& site) {
+  if (index >= MAX_SITES) {
+    return false;
+  }
+
+  uint16_t addr = index * sizeof(Site);
+  for (uint16_t i = 0; i < sizeof(Site); ++i) {
+    *((uint8_t*)&site + i) = EEPROM.read(addr + i);
+  }
+  
+  return true;
+}
+
+bool write_site(const uint16_t index, const Site& site) {
+  if (index >= MAX_SITES) {
+    return false;
+  }
+
+  uint16_t addr = index * sizeof(Site);
+  for (uint16_t i = 0; i < sizeof(Site); ++i) {
+    EEPROM.write(addr + i, *((uint8_t*)&site + i));
+  }
+  
+  return true;
+}
+
+void get_otp() { 
+  uint16_t site_id = (uint16_t) strtoul(get_string().c_str(), NULL, 10);
+  String site_name = get_string();
+  String site_login = get_string();
+
+  if (site_name.length() == 0 || site_login.length() == 0) {
+    Serial.println("Error: Invalid input!");
+    return;
+  }
+
+  if (global_current_time <= 0) {
+    Serial.println("Error: Set time first!");
+    return;
+  }
+
+  Serial.println(get_otp(site_id, site_name, site_login, global_current_time));
+}
+
+String get_otp(uint16_t site_id, const String& site_name, const String& site_login, long current_time) {
+  Site site;
+  if (!find_site_by_id(site_id, site)) {
+    return "Error: Site not found";
+  }
+
+  if (!validate_site_hash(site, site_name, site_login)) {
+    return "Error: Hash mismatch";
+  }
+
+  
+  if (lcd_prompt_user("Send TOTP code?", "site.hash")) {
+    TOTP totp(site.decoded_code, sizeof(site.decoded_code));
+    long timeSteps = current_time / TIME_STEP;
+    return totp.getCodeFromSteps(timeSteps);
+  }
+
+  return "Reject from user";
+}
+
+bool find_site_by_id(const uint16_t site_id, Site& site) {
+  for (uint16_t i = 0; i < MAX_SITES; ++i) {
+    Site temp;
+    if (read_site(i, temp) && temp.id == site_id) {
+      site = temp;
+      return true;
+    }
+  }
+  return false;
+}
+
+bool validate_site_hash(const Site& site, const String& site_name, const String& site_login) {
+  return site.hash == fnv1a_hash(site_name, site_login);
+}
+
+uint16_t fnv1a_hash(const String& site_name, const String& site_login) {
+  uint32_t hash = 2166136261;
+  for (char c : site_name + site_login) {
+    hash ^= c;
+    hash *= 16777619;
+  }
+  return (uint16_t)(hash & 0xFFFF);
+}
+
+void erase_db() {
+  if (lcd_prompt_user("Erase TOTP", "token database?")) {
+    EEPROM.format();
+  }
 }
 
 bool lcd_prompt_user(String line1, String line2) {
@@ -126,31 +244,6 @@ bool lcd_prompt_user(String line1, String line2) {
   return false;
 }
 
-void get_site_auth_code() { 
-  String site_id = get_string();
-  String site_name = get_string();
-  String site_login = get_string();
-
-  if (site_id.length() == 0 || site_name.length() == 0 || site_login.length() == 0) {
-    Serial.println("Error: Invalid input!");
-    return;
-  }
-
-  if (global_current_time <= 0) {
-    Serial.println("Error: Set time first!");
-    return;
-  }
-
-  if (lcd_prompt_user("Send TOTP code?", sites_hash[i])) {
-    site_auth_code = getAuthCode(site_id, site_name, site_login, currentTime);
-    Serial.println(site_auth_code);
-    return;
-  }
-
-  // Reject from user
-  Serial.println(-1);
-}
-
 String get_string() {
   String string = "";
   
@@ -169,32 +262,6 @@ String get_string() {
   return string;
 }
 
-int get_index(String site_id) {
-  for (int i = 0; i < SIZE; ++i) {
-    if (site_id == sites_id[i]) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-int check_site_name(String site_name, String site_hash) {
-  // TODO: Проверка соответствия site_name и site_hash
-  return 1;
-}
-
-String get_site_auth_code(const char* site_encoded_code, long current_time) {
-  uint8_t site_decoded_code[128]; // Buffer to store decoded data
-  int site_decoded_code_length = decode_base32(site_encoded_code, site_decoded_code);
-  
-  TOTP totp(site_decoded_code, site_decoded_code_length);
-
-  long time_steps = current_time / TIME_STEP;
-  String site_auth_code = totp.getCodeFromSteps(time_steps);
-
-  return site_auth_code;
-}
-
 void on_button_push() {
   button_pressed = true;
 }
@@ -205,114 +272,4 @@ void on_ui_timer_update() {
 
 void on_totp_timer_update() {
   global_current_time++;
-}
-
-void set_time() {
-  char *endptr;
-  long curr_time = strtol(get_string().c_str(), &endptr, 10);
-
-  Timer4.pause();
-  Timer4.refresh();
-
-  global_current_time = curr_time;
-  
-  Timer3.resume();
-}
-
-void erase_db() {
-  if (lcd_prompt_user("Erase TOTP", "token database?")) {
-    EEPROM.format();
-  }
-}
-
-uint16_t fnv1aHash(const String& site, const String& login) {
-  uint32_t hash = 2166136261;
-  for (char c : site + login) {
-    hash ^= c;
-    hash *= 16777619;
-  }
-  return (uint16_t)(hash & 0xFFFF);
-}
-
-bool writeRecord(uint16_t index, const Record& record) {
-  if (index >= MAX_RECORDS) return false;
-
-  uint16_t addr = index * sizeof(Record);
-  for (uint16_t i = 0; i < sizeof(Record); i++) {
-    EEPROM.write(addr + i, *((uint8_t*)&record + i));
-  }
-  return true;
-}
-
-bool readRecord(uint16_t index, Record& record) {
-  if (index >= MAX_RECORDS) return false;
-
-  uint16_t addr = index * sizeof(Record);
-  for (uint16_t i = 0; i < sizeof(Record); i++) {
-    *((uint8_t*)&record + i) = EEPROM.read(addr + i);
-  }
-  return true;
-}
-
-bool findRecordById(uint16_t id, Record& record) {
-  for (uint16_t i = 0; i < MAX_RECORDS; i++) {
-    Record temp;
-    if (readRecord(i, temp) && temp.id == id) {
-      record = temp;
-      return true;
-    }
-  }
-  return false;
-}
-
-bool validateRecordHash(const Record& record, const String& site,
-                        const String& login) {
-  return record.hash == fnv1aHash(site, login);
-}
-
-void addRecord(const uint16_t id, const String& site, const String& login, const uint8_t* secret, size_t secretLength) {
-  if (secretLength > 16) {
-    Serial.println("Error: Secret too long");
-    return;
-  }
-
-  Record record;
-  record.hash = fnv1aHash(site, login);
-  record.id = id;
-  memset(record.secret, 0, sizeof(record.secret));
-  memcpy(record.secret, secret, secretLength);
-
-  for (uint16_t i = 0; i < MAX_RECORDS; i++) {
-    Record temp;
-    if (!readRecord(i, temp) || temp.id == 0xFFFF) {  // Пустая запись
-      if (writeRecord(i, record)) {
-        Serial.println("Record added successfully");
-        return;
-      } else {
-        Serial.println("Error writing record");
-        return;
-      }
-    }
-  }
-  Serial.println("Error: EEPROM full");
-}
-
-void getAuthCode(uint16_t id, const String& site, const String& login,
-                 long currentTime) {
-  Record record;
-  if (!findRecordById(id, record)) {
-    Serial.println("Error: Record not found");
-    return;
-  }
-
-//  if (!validateRecordHash(record, site, login)) {
-//    Serial.println("Error: Hash mismatch");
-//    return;
-//  }
-
-  TOTP totp(record.secret, sizeof(record.secret));
-  long timeSteps = currentTime / TIME_STEP;
-  String authCode = totp.getCodeFromSteps(timeSteps);
-
-  Serial.println(authCode);
 }
