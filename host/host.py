@@ -77,6 +77,8 @@ def set_time() -> None:
     current_time_in_sec: int = int(time.time())
     ser.write(f"{current_time_in_sec}\n".encode())
 
+    print("Done")
+
 
 def add_site() -> None:
     id_: str = str(len(sites))
@@ -129,6 +131,8 @@ def erase_db() -> None:
 
     with open(config.Database.name, 'w'):
         pass
+
+    print("Done")
 
 
 if __name__ == '__main__':
