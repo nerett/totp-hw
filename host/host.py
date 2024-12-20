@@ -37,6 +37,11 @@ except serial.SerialException as se:
     exit(1)
 
 
+def go_to_previous_line() -> None:
+    print("\033[F", end="")
+    print(" " * 30, end="\r")
+
+
 def choose(variants: List[Any]) -> Any:
     while True:
         choice = input("> ")
@@ -60,6 +65,7 @@ def choose_site() -> Optional[Site]:
         print(f"{i + 1}. {site.name}?login={site.login}")
 
     chosen_site: Site = choose(sites)
+    go_to_previous_line()
     print(f"Chosen site: {chosen_site.name}?login={chosen_site.login}")
 
     return chosen_site
@@ -142,7 +148,8 @@ if __name__ == '__main__':
             print("Choose the action:")
 
             chosen_command: Command = choose(commands)
-            print(f'({chosen_command.name})')
+            go_to_previous_line()
+            print(f'> {chosen_command.name}')
 
             if chosen_command == Command.SET_TIME:
                 set_time()
