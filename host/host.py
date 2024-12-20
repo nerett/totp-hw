@@ -66,16 +66,14 @@ def choose_site() -> Optional[Site]:
     if not sites:
         return None
 
-    print("Choose the site:")
-
     i: int
     site: Site
     for i, site in enumerate(sites):
-        print(f"{i + 1}. {site.name}?login={site.login}")
+        print(f"{i + 1}. {site.name}${site.login}")
 
     chosen_site: Site = choose(sites)
     go_to_previous_line()
-    print(f"Chosen site: {chosen_site.name}?login={chosen_site.login}")
+    print(f"Chosen site: {chosen_site.name}${chosen_site.login}")
 
     return chosen_site
 
@@ -95,15 +93,15 @@ def set_time() -> None:
 
 def add_site() -> None:
     id_: str = str(len(sites))
-    name: str = input("Input site name: ")
-    login: str = input("Input site login: ")
+    name: str = input("Enter site name: ")
+    login: str = input("Enter site login: ")
     site: Site = Site(id_, name, login)
 
     sites.append(site)
     with open(config.Database.name, 'a') as file:
         file.write(f"{id_},{name},{login}\n")
 
-    encoded_code: str = input("Input site token: ")
+    encoded_code: str = input("Enter site token: ")
 
     ser.write(Command.ADD_SITE.value)
     ser.write(f'{site.id_}\n{site.name}\n{site.login}\n{encoded_code}\n'.encode())
@@ -128,7 +126,11 @@ def get_otp() -> Tuple[Optional[Site], Optional[str]]:
     if not line:
         return site, None
 
-    pyperclip.copy(line)
+    try:
+        otp: int = int(line)
+        pyperclip.copy(line)
+    except ValueError:
+        pass
 
     return site, line
 
@@ -163,8 +165,6 @@ if __name__ == '__main__':
         print()
 
         while True:
-            print("Choose the action:")
-
             chosen_command: Command = choose(commands)
             go_to_previous_line()
             print(f'> {chosen_command.name}')
@@ -178,7 +178,7 @@ if __name__ == '__main__':
                 otp: str
                 site, otp = get_otp()
                 if site and otp:
-                    print(f"OTP for {site.name}?login={site.login}: {otp}")
+                    print(f"OTP for {site.name}${site.login}: {otp}")
             elif chosen_command == Command.ERASE_DB:
                 erase_db()
             else:
