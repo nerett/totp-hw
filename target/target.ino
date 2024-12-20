@@ -31,9 +31,11 @@ const int ui_timer_period = 1000000;
 const int totp_timer_period = 1000000;
 
 const int ui_timer_threshold = 5;
+const int ui_timer_clear_screen_threshold = 8;
 
 volatile long global_current_time = 0;
 volatile long ui_current_time = 0;
+volatile bool do_ui_clear_screen = false;
 
 volatile bool button_pressed = false;
 
@@ -42,6 +44,9 @@ void setup() {
 
   pinMode(PA0, INPUT);
   attachInterrupt(PA0, on_button_push, FALLING);
+
+  pinMode( PA1, OUTPUT );
+  digitalWrite(PA1, LOW);
 
   Timer3.pause();
   Timer3.setPeriod(ui_timer_period);
@@ -52,10 +57,11 @@ void setup() {
   Timer4.attachInterrupt(TIMER_UPDATE_INTERRUPT, on_totp_timer_update);
 
   lcd.begin( 16, 2 );
-  
   lcd.print( "HW TOTP token" );
   lcd.setCursor( 0, 1 );
   lcd.print( "MIPT, 2025" );
+
+  reinit_ui_wait();
 }
 
 void loop() {
@@ -74,6 +80,13 @@ void loop() {
       Serial.println("Error: HostAPICode not implemented!");
     }
   }
+
+  if (do_ui_clear_screen) {
+    lcd.clear();
+    lcd.print("Awaiting command");
+  }
+
+  delay(100);
 }
 
 void set_time() {
@@ -220,23 +233,35 @@ void erase_db() {
   }
 }
 
+void reinit_ui_wait() {
+  Timer3.pause();
+  
+  button_pressed = false;
+  do_ui_clear_screen = false;
+  ui_current_time = 0;
+  
+  Timer3.refresh();
+  Timer3.resume();
+}
+
+void ui_wait() {
+  while (!button_pressed && ui_current_time < ui_timer_threshold) {
+    delay(300);
+  }
+}
+
 bool lcd_prompt_user(String line1, String line2) {
   lcd.clear();
   lcd.print(line1);
   lcd.setCursor( 0, 1 );
   lcd.print(line2);
+  digitalWrite(PA1, HIGH);
 
-  Timer3.pause();
-  button_pressed = false;
-  ui_current_time = 0;
-  Timer3.refresh();
-  Timer3.resume();
-
-  while (!button_pressed && ui_current_time < ui_timer_threshold) {
-    delay(300);
-  }
+  reinit_ui_wait();
+  ui_wait();
 
   lcd.clear();
+  digitalWrite(PA1, LOW);
   if (button_pressed) {
     lcd.print( "V Confirmed" );
     return true;
@@ -270,6 +295,9 @@ void on_button_push() {
 
 void on_ui_timer_update() {
   ui_current_time++;
+  if (ui_current_time > ui_timer_clear_screen_threshold) {
+    do_ui_clear_screen = true;
+  }
 }
 
 void on_totp_timer_update() {
