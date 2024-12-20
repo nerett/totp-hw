@@ -1,9 +1,11 @@
-import time
 import csv
+import time
+import tkinter as tk
+
+from pathlib import Path
 from typing import Optional, Tuple, List, Any
 
 import serial
-import pyperclip
 
 import config
 from command import Command
@@ -20,8 +22,13 @@ class Site:
 
 
 sites: List[Site] = []
-with open(config.Database.name, "r") as file:
-    reader = csv.reader(file)
+
+file: Path = Path(config.Database.name)
+if not file.is_file():
+    file.touch()
+
+with open(file, "r") as f:
+    reader = csv.reader(f)
 
     row: str
     for row in reader:
@@ -35,6 +42,10 @@ try:
 except serial.SerialException as se:
     print(f"Failed to open serial port: {se}")
     exit(1)
+
+
+root = tk.Tk()
+root.withdraw()
 
 
 def go_to_previous_line() -> None:
@@ -127,8 +138,11 @@ def get_otp() -> Tuple[Optional[Site], Optional[str]]:
         return site, None
 
     try:
-        otp: int = int(line)
-        pyperclip.copy(line)
+        int(line)
+
+        root.clipboard_clear()
+        root.clipboard_append(line)
+        root.update()
     except ValueError:
         pass
 
@@ -138,17 +152,20 @@ def get_otp() -> Tuple[Optional[Site], Optional[str]]:
 def erase_db() -> None:
     ser.write(Command.ERASE_DB.value)
 
-    global sites
-    sites = []
-
-    with open(config.Database.name, 'w'):
-        pass
-
     line: str = get_line_from_serial()
     if not line:
         return
 
     print(line)
+
+    if line == "Rejected":
+        return
+
+    global sites
+    sites = []
+
+    with open(config.Database.name, 'w'):
+        pass
 
 
 if __name__ == '__main__':
