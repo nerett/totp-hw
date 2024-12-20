@@ -131,7 +131,7 @@ String add_site(const uint16_t site_id, const String& site_name, const String& s
     Site temp;
     if (!read_site(i, temp) || temp.id == 0xFFFF) { // Пустая запись
       if (write_site(i, site)) {
-        return "Site added successfully";
+        return "Confirmed";
       } else {
         return "Error writing site";
       }
