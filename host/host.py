@@ -42,6 +42,15 @@ def go_to_previous_line() -> None:
     print(" " * 30, end="\r")
 
 
+def get_line_from_serial() -> Optional[str]:
+    line = ser.readline()
+    if not line:
+        print("No response from Serial")
+        return None
+
+    return line.decode().strip('\r\n')
+
+
 def choose(variants: List[Any]) -> Any:
     while True:
         choice = input("> ")
@@ -77,7 +86,11 @@ def set_time() -> None:
     current_time_in_sec: int = int(time.time())
     ser.write(f"{current_time_in_sec}\n".encode())
 
-    print("Done")
+    line: str = get_line_from_serial()
+    if not line:
+        return
+
+    print(line)
 
 
 def add_site() -> None:
@@ -95,12 +108,11 @@ def add_site() -> None:
     ser.write(Command.ADD_SITE.value)
     ser.write(f'{site.id_}\n{site.name}\n{site.login}\n{encoded_code}\n'.encode())
 
-    line = ser.readline()
-    if line:
-        print(line.decode().strip('\r\n'))
+    line: str = get_line_from_serial()
+    if not line:
         return
 
-    print("No response from Serial")
+    print(line)
 
 
 def get_otp() -> Tuple[Optional[Site], Optional[str]]:
@@ -112,15 +124,13 @@ def get_otp() -> Tuple[Optional[Site], Optional[str]]:
     ser.write(Command.GET_OTP.value)
     ser.write(f'{site.id_}\n{site.name}\n{site.login}\n'.encode())
 
-    line = ser.readline()
+    line: str = get_line_from_serial()
     if not line:
-        print("No response from Serial")
         return site, None
 
-    otp: str = line.decode().strip('\r\n')
-    pyperclip.copy(otp)
+    pyperclip.copy(line)
 
-    return site, otp
+    return site, line
 
 
 def erase_db() -> None:
@@ -132,7 +142,11 @@ def erase_db() -> None:
     with open(config.Database.name, 'w'):
         pass
 
-    print("Done")
+    line: str = get_line_from_serial()
+    if not line:
+        return
+
+    print(line)
 
 
 if __name__ == '__main__':

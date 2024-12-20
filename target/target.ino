@@ -99,6 +99,8 @@ void set_time() {
   global_current_time = curr_time;
   
   Timer4.resume();
+
+  Serial.println("Confirmed");
 }
 
 void add_site() {
@@ -230,6 +232,9 @@ uint16_t fnv1a_hash(const String& site_name, const String& site_login) {
 void erase_db() {
   if (lcd_prompt_user("Erase TOTP", "token database?")) {
     EEPROM.format();
+    Serial.println("Confirmed");
+  } else {
+    Serial.println("Rejected");
   }
 }
 
