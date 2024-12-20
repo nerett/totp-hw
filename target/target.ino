@@ -27,13 +27,15 @@ enum HostAPICode {
 
 const int TIME_STEP = 30;
 
-const int ui_timer_period = 5000000;
+const int ui_timer_period = 1000000;
 const int totp_timer_period = 1000000;
 
+const int ui_timer_threshold = 5;
+
 volatile long global_current_time = 0;
+volatile long ui_current_time = 0;
 
 volatile bool button_pressed = false;
-volatile bool ui_timer_updated = false;
 
 void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
@@ -83,7 +85,7 @@ void set_time() {
 
   global_current_time = curr_time;
   
-  Timer3.resume();
+  Timer4.resume();
 }
 
 void add_site() {
@@ -225,12 +227,12 @@ bool lcd_prompt_user(String line1, String line2) {
   lcd.print(line2);
 
   Timer3.pause();
-  Timer3.refresh();
   button_pressed = false;
-  ui_timer_updated = false;
+  ui_current_time = 0;
+  Timer3.refresh();
   Timer3.resume();
 
-  while (!button_pressed && !ui_timer_updated) {
+  while (!button_pressed && ui_current_time < ui_timer_threshold) {
     delay(300);
   }
 
@@ -267,7 +269,7 @@ void on_button_push() {
 }
 
 void on_ui_timer_update() {
-  ui_timer_updated = true;
+  ui_current_time++;
 }
 
 void on_totp_timer_update() {
