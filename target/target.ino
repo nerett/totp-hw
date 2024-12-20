@@ -194,7 +194,7 @@ String get_otp(uint16_t site_id, const String& site_name, const String& site_log
   }
 
   
-  if (lcd_prompt_user("Send TOTP code?", "site.hash")) {
+  if (lcd_prompt_user("Send TOTP code?", site_name + "$" + site_login)) {
     TOTP totp(site.decoded_code, sizeof(site.decoded_code));
     long timeSteps = current_time / TIME_STEP;
     return totp.getCodeFromSteps(timeSteps);
@@ -244,21 +244,24 @@ void reinit_ui_wait() {
   Timer3.resume();
 }
 
-void ui_wait() {
-  while (!button_pressed && ui_current_time < ui_timer_threshold) {
-    delay(300);
-  }
-}
-
 bool lcd_prompt_user(String line1, String line2) {
+  line2 = " " + line2 + " ";
+  
   lcd.clear();
   lcd.print(line1);
-  lcd.setCursor( 0, 1 );
-  lcd.print(line2);
   digitalWrite(PA1, HIGH);
 
   reinit_ui_wait();
-  ui_wait();
+  int i = 0;
+  while (!button_pressed && ui_current_time < ui_timer_threshold) {
+    if (i >= line2.length()) {
+      i = 0;
+    }
+    lcd.setCursor(0, 1);
+    lcd.print(line2.substring(++i));
+    
+    delay(400);
+  }
 
   lcd.clear();
   digitalWrite(PA1, LOW);
