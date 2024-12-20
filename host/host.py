@@ -108,10 +108,6 @@ def add_site() -> None:
     login: str = input("Enter site login: ")
     site: Site = Site(id_, name, login)
 
-    sites.append(site)
-    with open(config.Database.name, 'a') as file:
-        file.write(f"{id_},{name},{login}\n")
-
     encoded_code: str = input("Enter site token: ")
 
     ser.write(Command.ADD_SITE.value)
@@ -122,6 +118,11 @@ def add_site() -> None:
         return
 
     print(line)
+
+    if line == "Confirmed":
+        sites.append(site)
+        with open(config.Database.name, 'a') as file:
+            file.write(f"{id_},{name},{login}\n")
 
 
 def get_otp() -> Tuple[Optional[Site], Optional[str]]:
@@ -158,14 +159,12 @@ def erase_db() -> None:
 
     print(line)
 
-    if line == "Rejected":
-        return
+    if line == "Confirmed":
+        global sites
+        sites = []
 
-    global sites
-    sites = []
-
-    with open(config.Database.name, 'w'):
-        pass
+        with open(config.Database.name, 'w'):
+            pass
 
 
 if __name__ == '__main__':
