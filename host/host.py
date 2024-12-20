@@ -3,6 +3,7 @@ import csv
 from typing import Optional, Tuple, List, Any
 
 import serial
+import pyperclip
 
 import config
 from command import Command
@@ -38,14 +39,13 @@ except serial.SerialException as se:
 
 def choose(variants: List[Any]) -> Any:
     while True:
-        try:
-            choice = int(input("Input number: ")) - 1
-            if 0 <= choice < len(variants):
-                variant: Any = variants[choice]
-                return variant
-            raise ValueError
-        except ValueError:
-            print("Incorrect number. Try again")
+        choice = input("> ")
+
+        if not choice.isdigit() or not (1 <= int(choice) <= len(commands)):
+            print("Invalid input. Please enter a valid number.")
+            continue
+
+        return variants[int(choice) - 1]
 
 
 def choose_site() -> Optional[Site]:
@@ -109,7 +109,10 @@ def get_otp() -> Tuple[Optional[Site], Optional[str]]:
         print("No response from Serial")
         return site, None
 
-    return site, line.decode().strip('\r\n')
+    otp: str = line.decode().strip('\r\n')
+    pyperclip.copy(otp)
+
+    return site, otp
 
 
 def erase_db() -> None:
@@ -124,18 +127,23 @@ def erase_db() -> None:
 
 if __name__ == '__main__':
     try:
-        set_time()
-
         commands: List[Command] = [command for command in Command]
+
+        print('Available actions:')
+
+        i: int
+        command: Command
+        for i, command in enumerate(commands):
+            print(f"{i + 1}. {command.name}")
+
+        print()
+
         while True:
             print("Choose the action:")
 
-            i: int
-            command: Command
-            for i, command in enumerate(commands):
-                print(f"{i + 1}. {command.name}")
-
             chosen_command: Command = choose(commands)
+            print(f'({chosen_command.name})')
+
             if chosen_command == Command.SET_TIME:
                 set_time()
             elif chosen_command == Command.ADD_SITE:
@@ -150,7 +158,7 @@ if __name__ == '__main__':
                 erase_db()
             else:
                 print("Unknown command")
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
         print("\nInterrupted by user")
     finally:
         if ser.is_open:
